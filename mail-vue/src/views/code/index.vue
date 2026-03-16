@@ -22,7 +22,7 @@
           <span class="label">验证码</span>
           <span class="value code-value" @click="copy(result.verifyCode)">
             {{ result.verifyCode }}
-            <el-icon class="copy-icon"><DocumentCopy /></el-icon>
+            <Icon icon="ep:document-copy" class="copy-icon" />
           </span>
         </div>
         <div class="result-row">
@@ -46,7 +46,7 @@
 <script setup>
 import { ref } from 'vue';
 import axios from 'axios';
-import { DocumentCopy } from '@element-plus/icons-vue';
+import { Icon } from '@iconify/vue';
 
 const token = ref('');
 const loading = ref(false);
