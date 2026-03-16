@@ -20,4 +20,5 @@ import '../api/reg-key-api'
 import '../api/public-api'
 import '../api/telegram-api'
 import '../api/oauth-api'
+import '../api/mailbox-token-api'
 export default app;

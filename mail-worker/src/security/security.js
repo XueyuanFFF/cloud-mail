@@ -18,7 +18,8 @@ const exclude = [
 	'/public/genToken',
 	'/telegram',
 	'/test',
-	'/oauth'
+	'/oauth',
+	'/code'
 ];
 
 const requirePerms = [
@@ -53,7 +54,10 @@ const requirePerms = [
 	'/regKey/list',
 	'/regKey/delete',
 	'/regKey/clearNotUse',
-	'/regKey/history'
+	'/regKey/history',
+	'/mailboxToken/generate',
+	'/mailboxToken/ban',
+	'/mailboxToken/unban'
 ];
 
 const premKey = {

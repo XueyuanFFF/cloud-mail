@@ -65,6 +65,11 @@ const routes = [
         component: () => import('@/views/test/index.vue')
     },
     {
+        path: '/code',
+        name: 'code',
+        component: () => import('@/views/code/index.vue')
+    },
+    {
         path: '/:pathMatch(.*)*',
         name: '404',
         component: () => import('@/views/404/index.vue')
@@ -98,7 +103,7 @@ router.beforeEach((to, from, next) => {
 
     const token = localStorage.getItem('token')
 
-    if (!token && to.name !== 'login') {
+    if (!token && to.name !== 'login' && to.name !== 'code') {
         return next({name: 'login'})
     }
 
