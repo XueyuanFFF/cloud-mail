@@ -1,199 +1,303 @@
 <template>
   <div class="code-page">
-    <div class="code-container">
-      <span class="code-title">验证码查询</span>
-      <span class="code-desc">输入邮箱专属密钥，获取最近10分钟内的验证码</span>
-      <el-input
-          v-model="token"
-          placeholder="请输入密钥 (Token)"
-          type="text"
-          autocomplete="off"
-          @keyup.enter="query"
-      />
-      <el-button class="btn" type="primary" @click="query" :loading="loading">
-        查询验证码
-      </el-button>
-      <div v-if="result" class="result-card">
-        <div class="result-row">
-          <span class="label">邮箱</span>
-          <span class="value">{{ result.email }}</span>
-        </div>
-        <div class="result-row highlight">
-          <span class="label">验证码</span>
-          <span class="value code-value" @click="copy(result.verifyCode)">
-            {{ result.verifyCode }}
-            <Icon icon="ep:document-copy" class="copy-icon" />
-          </span>
-        </div>
-        <div class="result-row">
-          <span class="label">主题</span>
-          <span class="value">{{ result.subject }}</span>
-        </div>
-        <div class="result-row">
-          <span class="label">发件人</span>
-          <span class="value">{{ result.sendEmail }}</span>
-        </div>
-        <div class="result-row">
-          <span class="label">时间</span>
-          <span class="value">{{ result.createTime }}</span>
+    <div class="code-card">
+      <div class="hero">
+        <div class="hero-badge">Token Query</div>
+        <div class="hero-title">验证码查询</div>
+        <div class="hero-desc">
+          输入密钥后可获取最近 10 分钟内最新一封包含验证码的邮件。查询过快时，请在 5 秒后重试。
         </div>
       </div>
-      <div v-if="errMsg" class="err-msg">{{ errMsg }}</div>
+
+      <div class="query-form">
+        <label class="field-label" for="token-input">邮箱密钥</label>
+        <el-input
+          id="token-input"
+          v-model="token"
+          placeholder="请输入完整 token"
+          type="text"
+          name="token"
+          spellcheck="false"
+          autocomplete="off"
+          @keyup.enter="query"
+        />
+        <div class="field-tip">复制令牌后可直接粘贴，系统会自动校验是否有效。</div>
+        <el-button class="query-btn" type="primary" :loading="loading" @click="query">
+          查询验证码
+        </el-button>
+      </div>
+
+      <div v-if="result" class="result-card">
+        <div class="result-head">
+          <div>
+            <div class="result-title">查询结果</div>
+            <div class="result-subtitle">{{ result.email }}</div>
+          </div>
+          <el-button type="primary" plain @click="copy(result.verifyCode)">复制验证码</el-button>
+        </div>
+
+        <div class="code-highlight">
+          <span class="code-label">验证码</span>
+          <span class="code-value">{{ result.verifyCode }}</span>
+        </div>
+
+        <div class="result-grid">
+          <div class="result-item">
+            <span class="item-label">主题</span>
+            <span class="item-value">{{ result.subject || '无主题' }}</span>
+          </div>
+          <div class="result-item">
+            <span class="item-label">发件人</span>
+            <span class="item-value">{{ result.sendEmail || '未知发件人' }}</span>
+          </div>
+          <div class="result-item">
+            <span class="item-label">时间</span>
+            <span class="item-value">{{ result.createTime || '--' }}</span>
+          </div>
+        </div>
+      </div>
+
+      <el-alert
+        v-if="errMsg"
+        class="error-alert"
+        type="error"
+        :closable="false"
+        show-icon
+        :title="errMsg"
+      />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue';
-import axios from 'axios';
-import { Icon } from '@iconify/vue';
+import { ref } from 'vue'
+import axios from 'axios'
 
-const token = ref('');
-const loading = ref(false);
-const result = ref(null);
-const errMsg = ref('');
+const token = ref('')
+const loading = ref(false)
+const result = ref(null)
+const errMsg = ref('')
 
-const baseUrl = import.meta.env.VITE_BASE_URL || '/api';
+const baseUrl = import.meta.env.VITE_BASE_URL || '/api'
+
+function normalizeError(error) {
+  const responseMessage = error?.response?.data?.message
+  if (responseMessage) {
+    return responseMessage
+  }
+  return '网络异常，请稍后重试'
+}
 
 async function query() {
-  const val = token.value.trim();
-  if (!val) {
-    ElMessage({ message: '请输入密钥', type: 'warning', plain: true });
-    return;
+  const value = token.value.trim()
+  if (!value) {
+    ElMessage({ message: '请输入密钥', type: 'warning', plain: true })
+    return
   }
 
-  loading.value = true;
-  result.value = null;
-  errMsg.value = '';
+  loading.value = true
+  result.value = null
+  errMsg.value = ''
 
   try {
-    const res = await axios.post(baseUrl + '/code/latest', { token: val });
-    const data = res.data;
+    const response = await axios.post(`${baseUrl}/code/latest`, { token: value })
+    const data = response.data
+
     if (data.code === 200) {
-      result.value = data.data;
-    } else {
-      errMsg.value = data.message || '查询失败';
+      result.value = data.data
+      return
     }
-  } catch (e) {
-    errMsg.value = '网络错误，请重试';
+
+    errMsg.value = data.message || '查询失败，请稍后再试'
+  } catch (error) {
+    errMsg.value = normalizeError(error)
   } finally {
-    loading.value = false;
+    loading.value = false
   }
 }
 
-function copy(text) {
-  navigator.clipboard.writeText(text).then(() => {
-    ElMessage({ message: '已复制到剪贴板', type: 'success', plain: true });
-  });
+async function copy(text) {
+  if (!text) return
+
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage({ message: '验证码已复制到剪贴板', type: 'success', plain: true })
+  } catch {
+    ElMessage({ message: '复制失败，请手动复制验证码', type: 'error', plain: true })
+  }
 }
 </script>
 
 <style lang="scss" scoped>
 .code-page {
   width: 100%;
-  height: 100%;
+  min-height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 24px;
+  background:
+    radial-gradient(circle at top left, rgba(0, 113, 227, 0.26), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(22, 163, 74, 0.22), transparent 30%),
+    linear-gradient(140deg, #eff6ff 0%, #f8fafc 45%, #fefce8 100%);
 }
 
-.code-container {
-  background: var(--el-bg-color);
-  padding: 40px;
+.code-card {
+  width: min(560px, 100%);
+  padding: 28px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+}
+
+.hero-badge {
+  display: inline-flex;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(0, 113, 227, 0.12);
+  color: #005fcc;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hero-title {
+  margin-top: 14px;
+  font-size: 28px;
+  font-weight: 800;
+  color: #10243f;
+}
+
+.hero-desc {
+  margin-top: 10px;
+  color: #5b6b84;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.query-form {
+  margin-top: 24px;
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 8px;
+  color: #10243f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.field-tip {
+  margin-top: 8px;
+  color: #6b7b93;
+  font-size: 12px;
+}
+
+.query-btn {
+  width: 100%;
+  height: 42px;
+  margin-top: 16px;
   border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
-  display: flex;
-  flex-direction: column;
-  width: 440px;
-  @media (max-width: 500px) {
-    width: calc(100% - 32px);
-    margin: 0 16px;
-    padding: 24px 20px;
-  }
-
-  .code-title {
-    font-weight: bold;
-    font-size: 22px;
-  }
-
-  .code-desc {
-    margin-top: 6px;
-    margin-bottom: 20px;
-    color: var(--form-desc-color);
-    font-size: 13px;
-  }
-
-  .el-input {
-    height: 40px;
-    margin-bottom: 16px;
-    :deep(.el-input__wrapper) {
-      border-radius: 8px;
-    }
-  }
-
-  .btn {
-    height: 40px;
-    width: 100%;
-    border-radius: 8px;
-    font-size: 15px;
-  }
 }
 
 .result-card {
+  margin-top: 22px;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid #dce7f7;
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+}
+
+.result-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.result-title {
+  color: #10243f;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.result-subtitle {
+  margin-top: 6px;
+  color: #62748e;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.code-highlight {
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #e0f2fe 0%, #ecfccb 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.code-label {
+  color: #35516d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.code-value {
+  color: #0f172a;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: 6px;
+}
+
+.result-grid {
+  margin-top: 18px;
+  display: grid;
+  gap: 12px;
+}
+
+.result-item {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.item-label {
+  color: #62748e;
+  font-size: 12px;
+}
+
+.item-value {
+  color: #10243f;
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.error-alert {
   margin-top: 20px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 8px;
-  overflow: hidden;
+}
 
-  .result-row {
-    display: flex;
-    align-items: center;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--el-border-color-lighter);
-    &:last-child {
-      border-bottom: none;
-    }
+@media (max-width: 640px) {
+  .code-page {
+    padding: 16px;
   }
 
-  .result-row.highlight {
-    background: var(--el-color-primary-light-9);
+  .code-card {
+    padding: 22px 18px;
+    border-radius: 20px;
   }
 
-  .label {
-    width: 60px;
-    flex-shrink: 0;
-    color: var(--secondary-text-color);
-    font-size: 13px;
-  }
-
-  .value {
-    flex: 1;
-    word-break: break-all;
-    font-size: 14px;
+  .result-head {
+    flex-direction: column;
   }
 
   .code-value {
-    font-size: 24px;
-    font-weight: bold;
-    color: var(--el-color-primary);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    font-size: 28px;
     letter-spacing: 4px;
   }
-
-  .copy-icon {
-    font-size: 16px;
-    color: var(--secondary-text-color);
-  }
-}
-
-.err-msg {
-  margin-top: 16px;
-  text-align: center;
-  color: var(--el-color-danger);
-  font-size: 14px;
 }
 </style>

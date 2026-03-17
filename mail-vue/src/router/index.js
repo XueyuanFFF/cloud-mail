@@ -54,6 +54,16 @@ const routes = [
                     menu: true
                 }
             },
+            {
+                path: '/admin-tool',
+                name: 'admin-tool',
+                component: () => import('@/views/admin-tool/index.vue'),
+                meta: {
+                    title: '令牌工具',
+                    name: 'admin-tool',
+                    menu: true
+                }
+            },
         ]
 
     },
@@ -71,11 +81,6 @@ const routes = [
         path: '/code',
         name: 'code',
         component: () => import('@/views/code/index.vue')
-    },
-    {
-        path: '/admin-tool',
-        name: 'admin-tool',
-        component: () => import('@/views/admin-tool/index.vue')
     },
     {
         path: '/:pathMatch(.*)*',

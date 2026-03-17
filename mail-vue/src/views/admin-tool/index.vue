@@ -1,64 +1,130 @@
 <template>
-  <div class="admin-tool-wrap">
-    <div class="page-header">
-      <Icon icon="fluent:key-20-regular" width="22" height="22" />
-      <span>令牌工具</span>
+  <div class="admin-tool-page">
+    <div class="toolbar">
+      <div class="toolbar-title">
+        <Icon icon="fluent:key-20-regular" width="22" height="22" />
+        <div>
+          <div class="title-text">令牌工具</div>
+          <div class="title-desc">统一输入邮箱前缀，直接注册、生成令牌并核对最近 3 封邮件。</div>
+        </div>
+      </div>
+      <el-tag type="info" effect="plain">@{{ ADMIN_TOOL_DOMAIN }}</el-tag>
     </div>
 
-    <div v-if="canRegisterAccount" class="card-section">
-      <div class="section-title">子账号注册</div>
-      <div class="input-row">
+    <div class="control-card">
+      <div class="control-head">
+        <label class="control-label" for="admin-tool-prefix">邮箱前缀</label>
+        <span class="control-tip">建议输入完整前缀后再执行操作，减少误查。</span>
+      </div>
+      <div class="control-row">
         <el-input
-          v-model="regPrefix"
-          placeholder="输入邮箱前缀"
+          id="admin-tool-prefix"
+          v-model="prefix"
           class="prefix-input"
-          @keyup.enter="handleAddAccount"
+          placeholder="例如 demo.user"
+          clearable
+          spellcheck="false"
+          autocomplete="off"
+          @keyup.enter="handleQueryRecentMails"
         >
           <template #append>
-            <span class="domain-suffix">@{{ DOMAIN }}</span>
+            <span class="domain-suffix">@{{ ADMIN_TOOL_DOMAIN }}</span>
           </template>
         </el-input>
-        <el-button type="primary" :loading="regLoading" @click="handleAddAccount">注册</el-button>
+        <el-button v-if="canRegisterAccount" :loading="regLoading" @click="handleAddAccount">注册子账号</el-button>
+        <el-button v-if="canUseTokenTool" type="primary" :loading="tokenLoading" @click="handleGenerateToken">生成令牌</el-button>
+        <el-button v-if="canUseTokenTool" :loading="mailLoading" @click="handleQueryRecentMails">查询最近 3 封</el-button>
+      </div>
+      <div class="control-meta">
+        <span v-if="resolvedEmail">当前结果邮箱：{{ resolvedEmail }}</span>
+        <span v-else>当前尚未加载任何邮件。</span>
       </div>
     </div>
 
-    <div v-if="canUseTokenTool" class="card-section">
-      <div class="section-title">生成令牌 / 查看验证码</div>
-      <div class="input-row">
-        <el-input
-          v-model="tokenPrefix"
-          placeholder="输入邮箱前缀"
-          class="prefix-input"
-          @keyup.enter="handleGenerateToken"
-        >
-          <template #append>
-            <span class="domain-suffix">@{{ DOMAIN }}</span>
-          </template>
-        </el-input>
-        <el-button type="primary" :loading="tokenLoading" @click="handleGenerateToken">生成令牌</el-button>
-        <el-button :loading="codeLoading" :disabled="!currentToken" @click="handleGetCode">查看验证码</el-button>
+    <div v-if="canUseTokenTool && currentToken" class="token-card">
+      <div class="token-head">
+        <span class="token-title">当前令牌</span>
+        <el-button size="small" text @click="copyText(currentToken, '令牌')">复制令牌</el-button>
       </div>
+      <div class="token-value">{{ currentToken }}</div>
+    </div>
 
-      <div v-if="currentToken" class="result-block">
-        <div class="result-row">
-          <span class="result-label">令牌</span>
-          <span class="result-value token-text">{{ currentToken }}</span>
-          <el-button size="small" text @click="copyText(currentToken, '令牌')">
-            <Icon icon="fluent:copy-20-regular" width="16" height="16" />
-          </el-button>
+    <div v-if="canUseTokenTool" class="mail-panel">
+      <div class="mail-list">
+        <div class="panel-title">最近 3 封邮件</div>
+        <div v-if="mailLoading" class="panel-loading">
+          <el-skeleton :rows="4" animated />
+        </div>
+        <div v-else-if="recentMails.length === 0" class="panel-empty">
+          <el-empty description="暂无邮件，生成令牌后可在这里核对最近邮件内容。" />
+        </div>
+        <div
+          v-for="mail in recentMails"
+          :key="mail.emailId"
+          class="mail-item"
+          :class="{ active: mail.emailId === activeMailId }"
+          role="button"
+          tabindex="0"
+          @click="activeMailId = mail.emailId"
+          @keyup.enter="activeMailId = mail.emailId"
+          @keyup.space.prevent="activeMailId = mail.emailId"
+        >
+          <div class="mail-item-top">
+            <span class="mail-subject">{{ mail.subject || '无主题' }}</span>
+            <span class="mail-time">{{ formatMailTime(mail.createTime) }}</span>
+          </div>
+          <div class="mail-from">{{ mail.sendEmail || '未知发件人' }}</div>
+          <div class="mail-preview">{{ buildMailPreview(mail) }}</div>
+          <div class="mail-actions">
+            <el-tag v-if="mail.verifyCode" size="small" type="success" effect="plain">
+              验证码 {{ mail.verifyCode }}
+            </el-tag>
+            <el-button
+              v-if="mail.verifyCode"
+              size="small"
+              text
+              @click.stop="copyText(mail.verifyCode, '验证码')"
+            >
+              复制验证码
+            </el-button>
+          </div>
         </div>
       </div>
 
-      <div v-if="codeResult" class="result-block code-block">
-        <div class="result-row">
-          <span class="result-label">验证码</span>
-          <span class="code-value">{{ codeResult.verifyCode }}</span>
-          <el-tag size="small" type="success" style="margin-left:8px">已复制</el-tag>
-        </div>
-        <div class="result-row meta-row">
-          <span class="meta-text">来自：{{ codeResult.sendEmail }}</span>
-          <span class="meta-text">主题：{{ codeResult.subject }}</span>
-          <span class="meta-text">时间：{{ codeResult.createTime }}</span>
+      <div class="mail-detail">
+        <template v-if="selectedMail">
+          <div class="detail-head">
+            <div>
+              <div class="detail-subject">{{ selectedMail.subject || '无主题' }}</div>
+              <div class="detail-meta">
+                <span>FROM: {{ selectedMail.sendEmail || '未知发件人' }}</span>
+                <span>{{ formatMailTime(selectedMail.createTime) }}</span>
+              </div>
+            </div>
+            <div class="detail-actions">
+              <el-tag v-if="selectedMail.verifyCode" type="success">验证码 {{ selectedMail.verifyCode }}</el-tag>
+              <el-button
+                v-if="selectedMail.verifyCode"
+                size="small"
+                type="primary"
+                plain
+                @click="copyText(selectedMail.verifyCode, '验证码')"
+              >
+                复制验证码
+              </el-button>
+            </div>
+          </div>
+          <el-scrollbar class="detail-scroll">
+            <ShadowHtml
+              v-if="selectedMail.content"
+              class="detail-html"
+              :html="formatMailHtml(selectedMail.content)"
+            />
+            <pre v-else class="detail-text">{{ selectedMail.text || '这封邮件没有可展示的正文内容。' }}</pre>
+          </el-scrollbar>
+        </template>
+        <div v-else class="panel-empty">
+          <el-empty description="选择左侧邮件后，这里会显示完整内容。" />
         </div>
       </div>
     </div>
@@ -68,181 +134,437 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { Icon } from '@iconify/vue'
-import { generateToken, getLatestCode, addSubAccount } from '@/request/admin-tool.js'
+import ShadowHtml from '@/components/shadow-html/index.vue'
+import { addSubAccount, generateToken, getRecentTokenMails } from '@/request/admin-tool.js'
+import { useSettingStore } from '@/store/setting.js'
 import { useUserStore } from '@/store/user.js'
+import { formatDetailDate } from '@/utils/day.js'
+import { toOssDomain } from '@/utils/convert.js'
 import { canAddSubAccount, canGenerateMailboxToken } from '@/perm/access.js'
+import {
+  ADMIN_TOOL_DOMAIN,
+  buildAdminToolEmail,
+  getSelectedMailId,
+  shouldRefreshToken,
+} from './model.js'
 
-const DOMAIN = 'yx909.indevs.in'
+defineOptions({
+  name: 'admin-tool',
+})
+
+const settingStore = useSettingStore()
 const userStore = useUserStore()
 
-const regPrefix = ref('')
+const prefix = ref('')
 const regLoading = ref(false)
-
-const tokenPrefix = ref('')
 const tokenLoading = ref(false)
-const codeLoading = ref(false)
+const mailLoading = ref(false)
 const currentToken = ref('')
 const currentEmail = ref('')
-const codeResult = ref(null)
+const resolvedEmail = ref('')
+const recentMails = ref([])
+const activeMailId = ref(null)
+
 const canRegisterAccount = computed(() => canAddSubAccount(userStore.user.permKeys))
 const canUseTokenTool = computed(() => canGenerateMailboxToken(userStore.user.permKeys))
+const targetEmail = computed(() => buildAdminToolEmail(prefix.value))
+const selectedMail = computed(() => recentMails.value.find(mail => mail.emailId === activeMailId.value) || null)
 
-function copyText(text, label) {
-    navigator.clipboard.writeText(text).then(() => {
-        ElMessage.success(`${label}已复制`)
-    })
+function ensureTargetEmail() {
+  if (!targetEmail.value) {
+    ElMessage.warning('请输入邮箱前缀')
+    return ''
+  }
+  return targetEmail.value
+}
+
+async function copyText(text, label) {
+  if (!text) return
+
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success(`${label}已复制`)
+  } catch {
+    ElMessage.error(`${label}复制失败，请手动复制`)
+  }
+}
+
+async function ensureToken(email, shouldCopy = false) {
+  if (!shouldRefreshToken(currentEmail.value, email, currentToken.value)) {
+    return currentToken.value
+  }
+
+  const res = await generateToken(email)
+  currentToken.value = res.token
+  currentEmail.value = email
+
+  if (shouldCopy) {
+    await copyText(res.token, '令牌')
+  }
+
+  return res.token
+}
+
+function buildMailPreview(mail) {
+  const content = mail.text || mail.content || ''
+  return content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || '这封邮件没有可预览的文字内容。'
+}
+
+function formatMailTime(time) {
+  return time ? formatDetailDate(time) : '--'
+}
+
+function formatMailHtml(content) {
+  const domain = settingStore.settings.r2Domain
+  return (content || '').replace(/{{domain}}/g, `${toOssDomain(domain)}/`)
 }
 
 async function handleAddAccount() {
-    const prefix = regPrefix.value.trim()
-    if (!prefix) {
-        ElMessage.warning('请输入邮箱前缀')
-        return
-    }
-    regLoading.value = true
-    try {
-        await addSubAccount(`${prefix}@${DOMAIN}`)
-        ElMessage.success(`${prefix}@${DOMAIN} 注册成功`)
-        regPrefix.value = ''
-    } finally {
-        regLoading.value = false
-    }
+  const email = ensureTargetEmail()
+  if (!email) return
+
+  regLoading.value = true
+  try {
+    await addSubAccount(email)
+    ElMessage.success(`${email} 注册成功`)
+  } finally {
+    regLoading.value = false
+  }
 }
 
 async function handleGenerateToken() {
-    const prefix = tokenPrefix.value.trim()
-    if (!prefix) {
-        ElMessage.warning('请输入邮箱前缀')
-        return
-    }
-    tokenLoading.value = true
-    codeResult.value = null
-    try {
-        const email = `${prefix}@${DOMAIN}`
-        const res = await generateToken(email)
-        currentToken.value = res.token
-        currentEmail.value = email
-        copyText(res.token, '令牌')
-    } finally {
-        tokenLoading.value = false
-    }
+  const email = ensureTargetEmail()
+  if (!email) return
+
+  tokenLoading.value = true
+  try {
+    await ensureToken(email, true)
+    resolvedEmail.value = email
+  } finally {
+    tokenLoading.value = false
+  }
 }
 
-async function handleGetCode() {
-    if (!currentToken.value) return
-    codeLoading.value = true
-    codeResult.value = null
-    try {
-        const res = await getLatestCode(currentToken.value)
-        codeResult.value = res
-        if (res?.verifyCode) {
-            navigator.clipboard.writeText(res.verifyCode)
-            ElMessage.success(`验证码 ${res.verifyCode} 已复制`)
-        }
-    } finally {
-        codeLoading.value = false
+async function handleQueryRecentMails() {
+  const email = ensureTargetEmail()
+  if (!email) return
+
+  mailLoading.value = true
+  try {
+    const token = await ensureToken(email)
+    const res = await getRecentTokenMails(token)
+    recentMails.value = Array.isArray(res.mails) ? res.mails : []
+    activeMailId.value = getSelectedMailId(recentMails.value, activeMailId.value)
+    resolvedEmail.value = res.email || email
+    currentEmail.value = resolvedEmail.value
+
+    if (recentMails.value.length === 0) {
+      ElMessage.info('最近没有可展示的邮件')
     }
+  } finally {
+    mailLoading.value = false
+  }
 }
 </script>
 
-<style scoped>
-.admin-tool-wrap {
-  padding: 20px 24px;
-  max-width: 780px;
-}
-
-.page-header {
+<style scoped lang="scss">
+.admin-tool-page {
+  height: 100%;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 18px;
-  font-weight: 600;
-  margin-bottom: 24px;
-  color: var(--el-text-color-primary);
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 20px;
+  background:
+    radial-gradient(circle at top right, rgba(64, 158, 255, 0.08), transparent 32%),
+    linear-gradient(180deg, #f8fbff 0%, #ffffff 24%);
+  overflow: hidden;
 }
 
-.card-section {
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 8px;
-  padding: 20px;
-  margin-bottom: 18px;
+.toolbar,
+.control-card,
+.token-card,
+.mail-list,
+.mail-detail {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(20, 35, 60, 0.08);
+  border-radius: 16px;
+  box-shadow: 0 12px 30px rgba(23, 44, 84, 0.05);
 }
 
-.section-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--el-text-color-secondary);
-  margin-bottom: 14px;
-}
-
-.input-row {
+.toolbar {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+}
+
+.toolbar-title {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.title-text {
+  font-size: 20px;
+  font-weight: 700;
+  color: #12233d;
+}
+
+.title-desc {
+  margin-top: 4px;
+  color: #51627f;
+  font-size: 13px;
+}
+
+.control-card {
+  padding: 18px 20px;
+}
+
+.control-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.control-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #12233d;
+}
+
+.control-tip,
+.control-meta {
+  color: #65748d;
+  font-size: 12px;
+}
+
+.control-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .prefix-input {
   flex: 1;
+  min-width: 260px;
 }
 
 .domain-suffix {
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
   white-space: nowrap;
+  color: #51627f;
 }
 
-.result-block {
-  margin-top: 14px;
-  padding: 12px 14px;
-  background: var(--el-fill-color-light);
-  border-radius: 6px;
+.control-meta {
+  margin-top: 10px;
 }
 
-.result-row {
+.token-card {
+  padding: 16px 20px;
+}
+
+.token-head {
   display: flex;
+  justify-content: space-between;
+  gap: 10px;
   align-items: center;
-  gap: 8px;
+  margin-bottom: 10px;
 }
 
-.result-label {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  flex-shrink: 0;
-  width: 36px;
+.token-title,
+.panel-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #12233d;
 }
 
-.result-value {
+.token-value {
+  font-family: Consolas, Monaco, monospace;
   font-size: 13px;
-  color: var(--el-text-color-primary);
-  flex: 1;
+  line-height: 1.6;
+  color: #1f3558;
   word-break: break-all;
 }
 
-.token-text {
-  font-family: monospace;
+.mail-panel {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(320px, 360px) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.mail-list,
+.mail-detail {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mail-list {
+  padding: 16px;
+  overflow: auto;
+}
+
+.panel-loading,
+.panel-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mail-item {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid #d9e3f3;
+  border-radius: 12px;
+  background: #f9fbff;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.mail-item:hover,
+.mail-item.active {
+  border-color: #409eff;
+  background: #eef6ff;
+  box-shadow: 0 10px 22px rgba(64, 158, 255, 0.12);
+}
+
+.mail-item-top {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.mail-subject {
+  color: #12233d;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.mail-time,
+.mail-from {
+  color: #65748d;
   font-size: 12px;
 }
 
-.code-block {
-  border-left: 3px solid var(--el-color-success);
+.mail-from {
+  margin-top: 6px;
 }
 
-.code-value {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--el-color-success);
-  letter-spacing: 4px;
+.mail-preview {
+  margin-top: 10px;
+  color: #435471;
+  font-size: 13px;
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-.meta-row {
-  margin-top: 8px;
+.mail-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
 }
 
-.meta-text {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
+.mail-detail {
+  padding: 18px 20px;
+}
+
+.detail-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e6edf7;
+}
+
+.detail-subject {
+  font-size: 24px;
+  font-weight: 700;
+  color: #12233d;
+  line-height: 1.4;
+}
+
+.detail-meta {
+  margin-top: 8px;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  color: #65748d;
+  font-size: 13px;
+}
+
+.detail-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.detail-scroll {
+  flex: 1;
+  min-height: 0;
+  margin-top: 18px;
+}
+
+.detail-html {
+  min-height: 100%;
+}
+
+.detail-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  color: #1f3558;
+  line-height: 1.7;
+}
+
+@media (max-width: 1024px) {
+  .mail-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .mail-list {
+    max-height: 320px;
+  }
+
+  .detail-head {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 767px) {
+  .admin-tool-page {
+    padding: 14px;
+  }
+
+  .toolbar,
+  .control-card,
+  .token-card,
+  .mail-list,
+  .mail-detail {
+    border-radius: 14px;
+  }
+
+  .toolbar {
+    flex-direction: column;
+  }
+
+  .prefix-input {
+    min-width: 100%;
+  }
 }
 </style>

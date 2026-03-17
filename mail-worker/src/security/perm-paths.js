@@ -32,6 +32,7 @@ export const requirePerms = [
   '/regKey/clearNotUse',
   '/regKey/history',
   '/mailboxToken/generate',
+  '/mailboxToken/recent',
   '/mailboxToken/ban',
   '/mailboxToken/unban',
 ]
@@ -62,7 +63,7 @@ export const permPathMap = {
   'reg-key:add': ['/regKey/add'],
   'reg-key:query': ['/regKey/list', '/regKey/history'],
   'reg-key:delete': ['/regKey/delete', '/regKey/clearNotUse'],
-  'mailboxToken:generate': ['/mailboxToken/generate'],
+  'mailboxToken:generate': ['/mailboxToken/generate', '/mailboxToken/recent'],
   'mailboxToken:ban': ['/mailboxToken/ban'],
   'mailboxToken:unban': ['/mailboxToken/unban'],
 }

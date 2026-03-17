@@ -19,6 +19,18 @@ app.post('/code/latest', async (c) => {
 	return c.json(result.ok(data));
 });
 
+app.post('/mailboxToken/recent', async (c) => {
+	const body = await c.req.json();
+	const token = (body?.token || '').trim();
+
+	if (!token) {
+		return c.json(result.fail('token不能为空', 400));
+	}
+
+	const data = await mailboxTokenService.getRecentMails(c, token);
+	return c.json(result.ok(data));
+});
+
 app.post('/mailboxToken/generate', async (c) => {
 	const body = await c.req.json();
 	const emailAddr = (body?.email || '').trim().toLowerCase();

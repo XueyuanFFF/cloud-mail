@@ -5,6 +5,11 @@ import { emailConst, isDel } from '../const/entity-const';
 import BizError from '../error/biz-error';
 import KvConst from '../const/kv-const';
 import reqUtils from '../utils/req-utils';
+import {
+	CODE_RATE_LIMIT_SECONDS,
+	findLatestCodeMail,
+	mapRecentMails,
+} from './mailbox-token-utils';
 
 async function deriveKey(secret) {
 	const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
@@ -36,27 +41,6 @@ async function decryptToken(tokenHex, secret) {
 	}
 }
 
-function extractCodeFromText(text) {
-	if (!text) return null;
-	const patterns = [
-		/(?:验证码|校验码|动态码|確認碼)[^\d]{0,12}(\d{4,8})/i,
-		/(?:verification\s*code|verify\s*code|otp|code)[^\d]{0,12}(\d{4,8})/i
-	];
-	for (const reg of patterns) {
-		const match = text.match(reg);
-		if (match && match[1]) return match[1];
-	}
-	const common = text.match(/\b\d{4,8}\b/);
-	return common ? common[0] : null;
-}
-
-function isWithinMinutes(timeStr, minutes = 10) {
-	if (!timeStr) return false;
-	const mailTime = new Date(timeStr.replace(' ', 'T') + 'Z').getTime();
-	const now = Date.now();
-	return now - mailTime >= 0 && now - mailTime <= minutes * 60 * 1000;
-}
-
 const mailboxTokenService = {
 
 	async generateToken(c, emailAddr) {
@@ -86,9 +70,8 @@ const mailboxTokenService = {
 		}
 	},
 
-	async getLatestCode(c, token) {
+	async resolveAvailableEmail(c, token) {
 		const ip = reqUtils.getIp(c);
-
 		const ipBan = await c.env.kv.get(KvConst.CODE_IP_BAN + ip);
 		if (ipBan) throw new BizError('请求过于频繁，请30分钟后再试', 429);
 
@@ -105,11 +88,15 @@ const mailboxTokenService = {
 
 		const rateLimitKey = KvConst.CODE_RATE_LIMIT + emailAddr;
 		const limited = await c.env.kv.get(rateLimitKey);
-		if (limited) throw new BizError('请求过于频繁，请30秒后再试', 429);
+		if (limited) throw new BizError(`请求过于频繁，请${CODE_RATE_LIMIT_SECONDS}秒后再试`, 429);
 
-		await c.env.kv.put(rateLimitKey, '1', { expirationTtl: 30 });
+		await c.env.kv.put(rateLimitKey, '1', { expirationTtl: CODE_RATE_LIMIT_SECONDS });
+		return emailAddr;
+	},
 
-		const mails = await orm(c).select({
+	async listRecentMails(c, emailAddr, limit = 20) {
+		return orm(c).select({
+			emailId: email.emailId,
 			subject: email.subject,
 			text: email.text,
 			content: email.content,
@@ -121,23 +108,35 @@ const mailboxTokenService = {
 				eq(email.type, emailConst.type.RECEIVE),
 				eq(email.isDel, isDel.NORMAL)
 			)
-		).orderBy(desc(email.emailId)).limit(20);
+		).orderBy(desc(email.emailId)).limit(limit);
+	},
 
-		for (const mail of mails) {
-			if (!isWithinMinutes(mail.createTime, 10)) continue;
-			const merged = [mail.text || '', mail.subject || '', mail.content || ''].join('\n');
-			const code = extractCodeFromText(merged);
-			if (!code) continue;
-			return {
-				email: emailAddr,
-				verifyCode: code,
-				subject: mail.subject || '',
-				sendEmail: mail.sendEmail || '',
-				createTime: mail.createTime
-			};
+	async getLatestCode(c, token) {
+		const emailAddr = await this.resolveAvailableEmail(c, token);
+		const mails = await this.listRecentMails(c, emailAddr, 20);
+		const latestMail = findLatestCodeMail(mails);
+
+		if (!latestMail) {
+			return null;
 		}
 
-		return null;
+		return {
+			email: emailAddr,
+			verifyCode: latestMail.verifyCode,
+			subject: latestMail.subject,
+			sendEmail: latestMail.sendEmail,
+			createTime: latestMail.createTime
+		};
+	},
+
+	async getRecentMails(c, token) {
+		const emailAddr = await this.resolveAvailableEmail(c, token);
+		const mails = await this.listRecentMails(c, emailAddr, 3);
+
+		return {
+			email: emailAddr,
+			mails: mapRecentMails(mails, 3)
+		};
 	}
 };
 
