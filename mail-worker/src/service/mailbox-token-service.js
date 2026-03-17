@@ -1,61 +1,144 @@
 import orm from '../entity/orm';
+import account from '../entity/account';
 import email from '../entity/email';
-import { eq, and, desc } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { emailConst, isDel } from '../const/entity-const';
 import BizError from '../error/biz-error';
 import KvConst from '../const/kv-const';
 import reqUtils from '../utils/req-utils';
 import {
-	CODE_RATE_LIMIT_SECONDS,
+	buildTokenPayload,
 	findLatestCodeMail,
+	isAccountTokenActive,
 	mapRecentMails,
+	signTokenPayload,
+	TOKEN_STATUS,
+	verifyTokenPayload,
 } from './mailbox-token-utils';
 
-async function deriveKey(secret) {
-	const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
-	return crypto.subtle.importKey('raw', hash, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+function normalizeEmail(emailAddr) {
+	return String(emailAddr || '').trim().toLowerCase();
 }
 
-async function encryptEmail(emailAddr, secret) {
-	const key = await deriveKey(secret);
-	const iv = crypto.getRandomValues(new Uint8Array(12));
-	const encoded = new TextEncoder().encode(emailAddr);
-	const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
-	const combined = new Uint8Array(iv.length + ciphertext.byteLength);
-	combined.set(iv);
-	combined.set(new Uint8Array(ciphertext), iv.length);
-	return Array.from(combined).map(b => b.toString(16).padStart(2, '0')).join('');
+function getCurrentUser(c) {
+	return c.get('user');
 }
 
-async function decryptToken(tokenHex, secret) {
-	try {
-		const bytes = tokenHex.match(/.{2}/g).map(h => parseInt(h, 16));
-		const combined = new Uint8Array(bytes);
-		const iv = combined.slice(0, 12);
-		const ciphertext = combined.slice(12);
-		const key = await deriveKey(secret);
-		const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
-		return new TextDecoder().decode(decrypted);
-	} catch {
-		return null;
-	}
+function isSuperAdmin(c) {
+	return getCurrentUser(c)?.email === c.env.admin;
+}
+
+function getRotatedMeta(c) {
+	const user = getCurrentUser(c);
+	return {
+		tokenRotatedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+		tokenRotatedBy: user?.userId || 0,
+	};
 }
 
 const mailboxTokenService = {
 
+	async selectAccountByEmail(c, emailAddr) {
+		const normalizedEmail = normalizeEmail(emailAddr);
+		return orm(c).select().from(account).where(and(
+			sql`${account.email} COLLATE NOCASE = ${normalizedEmail}`,
+			eq(account.isDel, isDel.NORMAL)
+		)).get();
+	},
+
+	async selectAccountById(c, accountId) {
+		return orm(c).select().from(account).where(and(
+			eq(account.accountId, Number(accountId)),
+			eq(account.isDel, isDel.NORMAL)
+		)).get();
+	},
+
+	async selectManagedAccount(c, emailAddr) {
+		const accountRow = await this.selectAccountByEmail(c, emailAddr);
+
+		if (!accountRow) {
+			throw new BizError('账号不存在', 404);
+		}
+
+		if (!isSuperAdmin(c) && accountRow.userId !== getCurrentUser(c)?.userId) {
+			throw new BizError('无权操作该账号令牌', 403);
+		}
+
+		return accountRow;
+	},
+
+	async persistTokenState(c, accountId, data) {
+		await orm(c).update(account).set(data).where(eq(account.accountId, accountId)).run();
+		return this.selectAccountById(c, accountId);
+	},
+
+	async buildTokenResult(c, accountRow) {
+		const token = await signTokenPayload(buildTokenPayload(accountRow), c.env.jwt_secret);
+		return {
+			accountId: accountRow.accountId,
+			email: accountRow.email,
+			token,
+			tokenVersion: Number(accountRow.tokenVersion || 1),
+			tokenStatus: Number(accountRow.tokenStatus ?? TOKEN_STATUS.ACTIVE),
+			tokenRotatedAt: accountRow.tokenRotatedAt || '',
+			tokenRotatedBy: accountRow.tokenRotatedBy || 0,
+		};
+	},
+
+	async getCurrentToken(c, emailAddr) {
+		const accountRow = await this.selectManagedAccount(c, emailAddr);
+		return this.buildTokenResult(c, accountRow);
+	},
+
 	async generateToken(c, emailAddr) {
-		const token = await encryptEmail(emailAddr.toLowerCase(), c.env.jwt_secret);
-		return { email: emailAddr, token };
+		return this.getCurrentToken(c, emailAddr);
+	},
+
+	async rotateToken(c, emailAddr) {
+		const accountRow = await this.selectManagedAccount(c, emailAddr);
+		const nextRow = await this.persistTokenState(c, accountRow.accountId, {
+			tokenVersion: Number(accountRow.tokenVersion || 1) + 1,
+			tokenStatus: TOKEN_STATUS.ACTIVE,
+			...getRotatedMeta(c),
+		});
+
+		return this.buildTokenResult(c, nextRow);
+	},
+
+	async disableToken(c, emailAddr) {
+		const accountRow = await this.selectManagedAccount(c, emailAddr);
+		const nextRow = await this.persistTokenState(c, accountRow.accountId, {
+			tokenStatus: TOKEN_STATUS.DISABLED,
+			...getRotatedMeta(c),
+		});
+
+		return {
+			accountId: nextRow.accountId,
+			email: nextRow.email,
+			tokenVersion: Number(nextRow.tokenVersion || 1),
+			tokenStatus: Number(nextRow.tokenStatus ?? TOKEN_STATUS.DISABLED),
+			tokenRotatedAt: nextRow.tokenRotatedAt || '',
+			tokenRotatedBy: nextRow.tokenRotatedBy || 0,
+		};
+	},
+
+	async enableToken(c, emailAddr) {
+		const accountRow = await this.selectManagedAccount(c, emailAddr);
+		const nextRow = await this.persistTokenState(c, accountRow.accountId, {
+			tokenVersion: Number(accountRow.tokenVersion || 1) + 1,
+			tokenStatus: TOKEN_STATUS.ACTIVE,
+			...getRotatedMeta(c),
+		});
+
+		return this.buildTokenResult(c, nextRow);
 	},
 
 	async banToken(c, emailAddr) {
-		await c.env.kv.put(KvConst.TOKEN_BAN + emailAddr.toLowerCase(), '1');
-		return { email: emailAddr };
+		return this.disableToken(c, emailAddr);
 	},
 
 	async unbanToken(c, emailAddr) {
-		await c.env.kv.delete(KvConst.TOKEN_BAN + emailAddr.toLowerCase());
-		return { email: emailAddr };
+		return this.enableToken(c, emailAddr);
 	},
 
 	async incrementFailCount(c, ip) {
@@ -70,28 +153,34 @@ const mailboxTokenService = {
 		}
 	},
 
-	async resolveAvailableEmail(c, token) {
+	async resolveAvailableAccount(c, token) {
 		const ip = reqUtils.getIp(c);
 		const ipBan = await c.env.kv.get(KvConst.CODE_IP_BAN + ip);
 		if (ipBan) throw new BizError('请求过于频繁，请30分钟后再试', 429);
 
-		const emailAddr = await decryptToken(token, c.env.jwt_secret);
-		if (!emailAddr) {
+		const payload = await verifyTokenPayload(token, c.env.jwt_secret);
+		if (!payload?.accountId || !payload?.email || !payload?.version) {
+			await this.incrementFailCount(c, ip);
+			throw new BizError('token无效', 401);
+		}
+
+		const accountRow = await this.selectAccountById(c, payload.accountId);
+		if (!accountRow || normalizeEmail(accountRow.email) !== normalizeEmail(payload.email)) {
 			await this.incrementFailCount(c, ip);
 			throw new BizError('token无效', 401);
 		}
 
 		await c.env.kv.delete(KvConst.CODE_IP_FAIL + ip);
 
-		const emailBan = await c.env.kv.get(KvConst.TOKEN_BAN + emailAddr);
-		if (emailBan) throw new BizError('该令牌已被禁用', 403);
+		if (Number(accountRow.tokenStatus ?? TOKEN_STATUS.ACTIVE) === TOKEN_STATUS.DISABLED) {
+			throw new BizError('该账号令牌已被禁用', 403);
+		}
 
-		const rateLimitKey = KvConst.CODE_RATE_LIMIT + emailAddr;
-		const limited = await c.env.kv.get(rateLimitKey);
-		if (limited) throw new BizError(`请求过于频繁，请${CODE_RATE_LIMIT_SECONDS}秒后再试`, 429);
+		if (!isAccountTokenActive(accountRow, payload)) {
+			throw new BizError('令牌已失效，请联系管理员获取新令牌', 401);
+		}
 
-		await c.env.kv.put(rateLimitKey, '1', { expirationTtl: CODE_RATE_LIMIT_SECONDS });
-		return emailAddr;
+		return accountRow;
 	},
 
 	async listRecentMails(c, emailAddr, limit = 20) {
@@ -112,8 +201,8 @@ const mailboxTokenService = {
 	},
 
 	async getLatestCode(c, token) {
-		const emailAddr = await this.resolveAvailableEmail(c, token);
-		const mails = await this.listRecentMails(c, emailAddr, 20);
+		const accountRow = await this.resolveAvailableAccount(c, token);
+		const mails = await this.listRecentMails(c, accountRow.email, 20);
 		const latestMail = findLatestCodeMail(mails);
 
 		if (!latestMail) {
@@ -121,7 +210,7 @@ const mailboxTokenService = {
 		}
 
 		return {
-			email: emailAddr,
+			email: accountRow.email,
 			verifyCode: latestMail.verifyCode,
 			subject: latestMail.subject,
 			sendEmail: latestMail.sendEmail,
@@ -130,11 +219,11 @@ const mailboxTokenService = {
 	},
 
 	async getRecentMails(c, token) {
-		const emailAddr = await this.resolveAvailableEmail(c, token);
-		const mails = await this.listRecentMails(c, emailAddr, 3);
+		const accountRow = await this.resolveAvailableAccount(c, token);
+		const mails = await this.listRecentMails(c, accountRow.email, 3);
 
 		return {
-			email: emailAddr,
+			email: accountRow.email,
 			mails: mapRecentMails(mails, 3)
 		};
 	}

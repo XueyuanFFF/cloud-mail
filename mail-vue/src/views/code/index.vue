@@ -5,12 +5,13 @@
         <div class="hero-badge">Token Query</div>
         <div class="hero-title">验证码查询</div>
         <div class="hero-desc">
-          输入密钥后可获取最近 10 分钟内最新一封包含验证码的邮件。查询过快时，请在 5 秒后重试。
+          输入管理员提供的当前有效令牌，可查询最近 10 分钟内最新一封包含验证码的邮件。
+          如果管理员更换或禁用了令牌，旧令牌将立即失效。
         </div>
       </div>
 
       <div class="query-form">
-        <label class="field-label" for="token-input">邮箱密钥</label>
+        <label class="field-label" for="token-input">邮箱令牌</label>
         <el-input
           id="token-input"
           v-model="token"
@@ -21,7 +22,7 @@
           autocomplete="off"
           @keyup.enter="query"
         />
-        <div class="field-tip">复制令牌后可直接粘贴，系统会自动校验是否有效。</div>
+        <div class="field-tip">令牌失效、被禁用或已更换时，请联系管理员重新获取。</div>
         <el-button class="query-btn" type="primary" :loading="loading" @click="query">
           查询验证码
         </el-button>
@@ -91,7 +92,7 @@ function normalizeError(error) {
 async function query() {
   const value = token.value.trim()
   if (!value) {
-    ElMessage({ message: '请输入密钥', type: 'warning', plain: true })
+    ElMessage({ message: '请输入令牌', type: 'warning', plain: true })
     return
   }
 

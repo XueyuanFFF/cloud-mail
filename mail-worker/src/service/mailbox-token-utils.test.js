@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  CODE_RATE_LIMIT_SECONDS,
+  TOKEN_STATUS,
+  buildTokenPayload,
   findLatestCodeMail,
+  isAccountTokenActive,
   mapRecentMails,
+  signTokenPayload,
+  verifyTokenPayload,
 } from './mailbox-token-utils.js'
 
 function toTime(offsetSeconds) {
@@ -11,8 +15,48 @@ function toTime(offsetSeconds) {
 }
 
 describe('mailbox-token-utils', () => {
-  it('uses a 5 second cooldown for token queries', () => {
-    expect(CODE_RATE_LIMIT_SECONDS).toBe(5)
+  it('builds a versioned token payload from an account row', () => {
+    expect(buildTokenPayload({
+      accountId: 18,
+      email: 'Demo@yx909.indevs.in',
+      tokenVersion: 4,
+    })).toEqual({
+      accountId: 18,
+      email: 'demo@yx909.indevs.in',
+      version: 4,
+    })
+  })
+
+  it('signs a stable token for the same account payload', async () => {
+    const payload = buildTokenPayload({
+      accountId: 18,
+      email: 'demo@yx909.indevs.in',
+      tokenVersion: 4,
+    })
+
+    const first = await signTokenPayload(payload, 'secret')
+    const second = await signTokenPayload(payload, 'secret')
+
+    expect(first).toBe(second)
+    await expect(verifyTokenPayload(first, 'secret')).resolves.toEqual(payload)
+    await expect(verifyTokenPayload(first, 'other-secret')).resolves.toBeNull()
+  })
+
+  it('accepts only the active token version for an account', () => {
+    expect(isAccountTokenActive(
+      { tokenStatus: TOKEN_STATUS.ACTIVE, tokenVersion: 4 },
+      { version: 4 },
+    )).toBe(true)
+
+    expect(isAccountTokenActive(
+      { tokenStatus: TOKEN_STATUS.ACTIVE, tokenVersion: 5 },
+      { version: 4 },
+    )).toBe(false)
+
+    expect(isAccountTokenActive(
+      { tokenStatus: TOKEN_STATUS.DISABLED, tokenVersion: 4 },
+      { version: 4 },
+    )).toBe(false)
   })
 
   it('maps the latest 3 mails and extracts codes when present', () => {

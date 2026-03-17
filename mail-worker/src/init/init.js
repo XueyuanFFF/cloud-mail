@@ -28,8 +28,26 @@ const dbInit = {
 		await this.v2_7DB(c);
 		await this.v2_8DB(c);
 		await this.v2_9DB(c);
+		await this.v3_0DB(c);
 		await settingService.refresh(c);
 		return c.text('success');
+	},
+
+	async v3_0DB(c) {
+		const sqlList = [
+			`ALTER TABLE account ADD COLUMN token_version INTEGER NOT NULL DEFAULT 1;`,
+			`ALTER TABLE account ADD COLUMN token_status INTEGER NOT NULL DEFAULT 0;`,
+			`ALTER TABLE account ADD COLUMN token_rotated_at TEXT;`,
+			`ALTER TABLE account ADD COLUMN token_rotated_by INTEGER;`
+		];
+
+		for (const sql of sqlList) {
+			try {
+				await c.env.db.prepare(sql).run();
+			} catch (e) {
+				console.warn(`跳过账号令牌字段迁移：${e.message}`);
+			}
+		}
 	},
 
 	async v2_8DB(c) {
@@ -597,6 +615,10 @@ const dbInit = {
 			account_id INTEGER PRIMARY KEY AUTOINCREMENT,
 			email TEXT NOT NULL,
 			status INTEGER DEFAULT 0 NOT NULL,
+			token_version INTEGER DEFAULT 1 NOT NULL,
+			token_status INTEGER DEFAULT 0 NOT NULL,
+			token_rotated_at TEXT,
+			token_rotated_by INTEGER,
 			latest_email_time DATETIME,
 			create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
 			user_id INTEGER NOT NULL,

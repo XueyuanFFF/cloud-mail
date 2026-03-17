@@ -1,4 +1,8 @@
 export const ADMIN_TOOL_DOMAIN = 'yx909.indevs.in'
+export const ADMIN_TOOL_TOKEN_STATUS = {
+  ACTIVE: 0,
+  DISABLED: 1,
+}
 
 export function buildAdminToolEmail(prefix) {
   const value = (prefix || '').trim().toLowerCase()
@@ -19,4 +23,20 @@ export function getSelectedMailId(mails, currentMailId) {
   }
 
   return mails[0].emailId
+}
+
+export function getTokenStatusMeta(status) {
+  if (status === ADMIN_TOOL_TOKEN_STATUS.ACTIVE) {
+    return { label: '启用中', type: 'success' }
+  }
+
+  if (status === ADMIN_TOOL_TOKEN_STATUS.DISABLED) {
+    return { label: '已禁用', type: 'danger' }
+  }
+
+  return { label: '未知状态', type: 'info' }
+}
+
+export function shouldResetAdminToolState(currentEmail, nextEmail) {
+  return !!currentEmail && currentEmail !== nextEmail
 }

@@ -2,6 +2,10 @@ import app from '../hono/hono';
 import result from '../model/result';
 import mailboxTokenService from '../service/mailbox-token-service';
 
+function normalizeEmail(body) {
+	return (body?.email || '').trim().toLowerCase();
+}
+
 app.post('/code/latest', async (c) => {
 	const body = await c.req.json();
 	const token = (body?.token || '').trim();
@@ -19,6 +23,66 @@ app.post('/code/latest', async (c) => {
 	return c.json(result.ok(data));
 });
 
+app.post('/mailboxToken/current', async (c) => {
+	const body = await c.req.json();
+	const emailAddr = normalizeEmail(body);
+
+	if (!emailAddr) {
+		return c.json(result.fail('email不能为空', 400));
+	}
+
+	const data = await mailboxTokenService.getCurrentToken(c, emailAddr);
+	return c.json(result.ok(data));
+});
+
+app.post('/mailboxToken/generate', async (c) => {
+	const body = await c.req.json();
+	const emailAddr = normalizeEmail(body);
+
+	if (!emailAddr) {
+		return c.json(result.fail('email不能为空', 400));
+	}
+
+	const data = await mailboxTokenService.generateToken(c, emailAddr);
+	return c.json(result.ok(data));
+});
+
+app.post('/mailboxToken/rotate', async (c) => {
+	const body = await c.req.json();
+	const emailAddr = normalizeEmail(body);
+
+	if (!emailAddr) {
+		return c.json(result.fail('email不能为空', 400));
+	}
+
+	const data = await mailboxTokenService.rotateToken(c, emailAddr);
+	return c.json(result.ok(data));
+});
+
+app.post('/mailboxToken/disable', async (c) => {
+	const body = await c.req.json();
+	const emailAddr = normalizeEmail(body);
+
+	if (!emailAddr) {
+		return c.json(result.fail('email不能为空', 400));
+	}
+
+	const data = await mailboxTokenService.disableToken(c, emailAddr);
+	return c.json(result.ok(data));
+});
+
+app.post('/mailboxToken/enable', async (c) => {
+	const body = await c.req.json();
+	const emailAddr = normalizeEmail(body);
+
+	if (!emailAddr) {
+		return c.json(result.fail('email不能为空', 400));
+	}
+
+	const data = await mailboxTokenService.enableToken(c, emailAddr);
+	return c.json(result.ok(data));
+});
+
 app.post('/mailboxToken/recent', async (c) => {
 	const body = await c.req.json();
 	const token = (body?.token || '').trim();
@@ -31,21 +95,9 @@ app.post('/mailboxToken/recent', async (c) => {
 	return c.json(result.ok(data));
 });
 
-app.post('/mailboxToken/generate', async (c) => {
-	const body = await c.req.json();
-	const emailAddr = (body?.email || '').trim().toLowerCase();
-
-	if (!emailAddr) {
-		return c.json(result.fail('email不能为空', 400));
-	}
-
-	const data = await mailboxTokenService.generateToken(c, emailAddr);
-	return c.json(result.ok(data));
-});
-
 app.post('/mailboxToken/ban', async (c) => {
 	const body = await c.req.json();
-	const emailAddr = (body?.email || '').trim().toLowerCase();
+	const emailAddr = normalizeEmail(body);
 
 	if (!emailAddr) {
 		return c.json(result.fail('email不能为空', 400));
@@ -57,7 +109,7 @@ app.post('/mailboxToken/ban', async (c) => {
 
 app.post('/mailboxToken/unban', async (c) => {
 	const body = await c.req.json();
-	const emailAddr = (body?.email || '').trim().toLowerCase();
+	const emailAddr = normalizeEmail(body);
 
 	if (!emailAddr) {
 		return c.json(result.fail('email不能为空', 400));

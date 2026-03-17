@@ -5,7 +5,7 @@
         <Icon icon="fluent:key-20-regular" width="22" height="22" />
         <div>
           <div class="title-text">令牌工具</div>
-          <div class="title-desc">统一输入邮箱前缀，直接注册、生成令牌并核对最近 3 封邮件。</div>
+          <div class="title-desc">一个邮箱只保留一个当前有效令牌。更换后旧令牌立即失效，禁用后客户无法继续访问。</div>
         </div>
       </div>
       <el-tag type="info" effect="plain">@{{ ADMIN_TOOL_DOMAIN }}</el-tag>
@@ -14,8 +14,9 @@
     <div class="control-card">
       <div class="control-head">
         <label class="control-label" for="admin-tool-prefix">邮箱前缀</label>
-        <span class="control-tip">建议输入完整前缀后再执行操作，减少误查。</span>
+        <span class="control-tip">输入前缀后可直接获取当前令牌、换新令牌或查询最近 3 封邮件。</span>
       </div>
+
       <div class="control-row">
         <el-input
           id="admin-tool-prefix"
@@ -32,21 +33,49 @@
           </template>
         </el-input>
         <el-button v-if="canRegisterAccount" :loading="regLoading" @click="handleAddAccount">注册子账号</el-button>
-        <el-button v-if="canUseTokenTool" type="primary" :loading="tokenLoading" @click="handleGenerateToken">生成令牌</el-button>
+        <el-button v-if="canUseTokenTool" :loading="currentLoading" @click="handleLoadCurrentToken">获取当前令牌</el-button>
+        <el-button v-if="canUseTokenTool" type="primary" :loading="rotateLoading" @click="handleRotateToken">更换令牌</el-button>
         <el-button v-if="canUseTokenTool" :loading="mailLoading" @click="handleQueryRecentMails">查询最近 3 封</el-button>
       </div>
+
+      <div v-if="canUseTokenTool && tokenInfo" class="action-row">
+        <el-button
+          v-if="tokenInfo.tokenStatus === ADMIN_TOOL_TOKEN_STATUS.ACTIVE"
+          type="danger"
+          plain
+          :loading="statusLoading"
+          @click="handleDisableToken"
+        >
+          禁用令牌
+        </el-button>
+        <el-button
+          v-else
+          type="success"
+          plain
+          :loading="statusLoading"
+          @click="handleEnableToken"
+        >
+          启用并发新令牌
+        </el-button>
+      </div>
+
       <div class="control-meta">
         <span v-if="resolvedEmail">当前结果邮箱：{{ resolvedEmail }}</span>
-        <span v-else>当前尚未加载任何邮件。</span>
+        <span v-else>当前尚未加载任何账号令牌或邮件内容。</span>
       </div>
     </div>
 
-    <div v-if="canUseTokenTool && currentToken" class="token-card">
+    <div v-if="canUseTokenTool && tokenInfo" class="token-card">
       <div class="token-head">
-        <span class="token-title">当前令牌</span>
-        <el-button size="small" text @click="copyText(currentToken, '令牌')">复制令牌</el-button>
+        <div class="token-summary">
+          <span class="token-title">当前令牌</span>
+          <el-tag :type="tokenStatusMeta.type">{{ tokenStatusMeta.label }}</el-tag>
+          <span class="token-meta">版本 {{ tokenInfo.tokenVersion }}</span>
+          <span v-if="tokenInfo.tokenRotatedAt" class="token-meta">更新时间 {{ tokenInfo.tokenRotatedAt }}</span>
+        </div>
+        <el-button v-if="tokenInfo.token" size="small" text @click="copyText(tokenInfo.token, '令牌')">复制令牌</el-button>
       </div>
-      <div class="token-value">{{ currentToken }}</div>
+      <div class="token-value">{{ tokenInfo.token || '当前状态下没有可展示的令牌。' }}</div>
     </div>
 
     <div v-if="canUseTokenTool" class="mail-panel">
@@ -56,7 +85,7 @@
           <el-skeleton :rows="4" animated />
         </div>
         <div v-else-if="recentMails.length === 0" class="panel-empty">
-          <el-empty description="暂无邮件，生成令牌后可在这里核对最近邮件内容。" />
+          <el-empty description="暂无可展示邮件。你可以先获取当前令牌，再查询最近 3 封邮件。" />
         </div>
         <div
           v-for="mail in recentMails"
@@ -133,9 +162,17 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import { ElMessageBox } from 'element-plus'
 import { Icon } from '@iconify/vue'
 import ShadowHtml from '@/components/shadow-html/index.vue'
-import { addSubAccount, generateToken, getRecentTokenMails } from '@/request/admin-tool.js'
+import {
+  addSubAccount,
+  disableToken,
+  enableToken,
+  getCurrentToken,
+  getRecentTokenMails,
+  rotateToken,
+} from '@/request/admin-tool.js'
 import { useSettingStore } from '@/store/setting.js'
 import { useUserStore } from '@/store/user.js'
 import { formatDetailDate } from '@/utils/day.js'
@@ -143,9 +180,11 @@ import { toOssDomain } from '@/utils/convert.js'
 import { canAddSubAccount, canGenerateMailboxToken } from '@/perm/access.js'
 import {
   ADMIN_TOOL_DOMAIN,
+  ADMIN_TOOL_TOKEN_STATUS,
   buildAdminToolEmail,
   getSelectedMailId,
-  shouldRefreshToken,
+  getTokenStatusMeta,
+  shouldResetAdminToolState,
 } from './model.js'
 
 defineOptions({
@@ -157,17 +196,21 @@ const userStore = useUserStore()
 
 const prefix = ref('')
 const regLoading = ref(false)
-const tokenLoading = ref(false)
+const currentLoading = ref(false)
+const rotateLoading = ref(false)
+const statusLoading = ref(false)
 const mailLoading = ref(false)
-const currentToken = ref('')
+
 const currentEmail = ref('')
 const resolvedEmail = ref('')
+const tokenInfo = ref(null)
 const recentMails = ref([])
 const activeMailId = ref(null)
 
 const canRegisterAccount = computed(() => canAddSubAccount(userStore.user.permKeys))
 const canUseTokenTool = computed(() => canGenerateMailboxToken(userStore.user.permKeys))
 const targetEmail = computed(() => buildAdminToolEmail(prefix.value))
+const tokenStatusMeta = computed(() => getTokenStatusMeta(tokenInfo.value?.tokenStatus))
 const selectedMail = computed(() => recentMails.value.find(mail => mail.emailId === activeMailId.value) || null)
 
 function ensureTargetEmail() {
@@ -176,6 +219,17 @@ function ensureTargetEmail() {
     return ''
   }
   return targetEmail.value
+}
+
+function resetToolState(nextEmail) {
+  if (!shouldResetAdminToolState(currentEmail.value, nextEmail)) {
+    return
+  }
+
+  tokenInfo.value = null
+  recentMails.value = []
+  activeMailId.value = null
+  resolvedEmail.value = ''
 }
 
 async function copyText(text, label) {
@@ -189,20 +243,36 @@ async function copyText(text, label) {
   }
 }
 
-async function ensureToken(email, shouldCopy = false) {
-  if (!shouldRefreshToken(currentEmail.value, email, currentToken.value)) {
-    return currentToken.value
-  }
-
-  const res = await generateToken(email)
-  currentToken.value = res.token
+function applyTokenInfo(info, email) {
+  tokenInfo.value = info
   currentEmail.value = email
+  resolvedEmail.value = info?.email || email
+}
 
-  if (shouldCopy) {
-    await copyText(res.token, '令牌')
+async function loadCurrentToken(email, options = {}) {
+  resetToolState(email)
+
+  const info = await getCurrentToken(email)
+  applyTokenInfo(info, email)
+
+  if (options.copy && info?.token) {
+    await copyText(info.token, '令牌')
   }
 
-  return res.token
+  return info
+}
+
+async function ensureActiveToken(email) {
+  const info = !tokenInfo.value || currentEmail.value !== email
+    ? await loadCurrentToken(email)
+    : tokenInfo.value
+
+  if (info?.tokenStatus !== ADMIN_TOOL_TOKEN_STATUS.ACTIVE) {
+    ElMessage.warning('该账号令牌已被禁用，请先启用并获取新令牌')
+    return null
+  }
+
+  return info?.token || null
 }
 
 function buildMailPreview(mail) {
@@ -232,16 +302,77 @@ async function handleAddAccount() {
   }
 }
 
-async function handleGenerateToken() {
+async function handleLoadCurrentToken() {
   const email = ensureTargetEmail()
   if (!email) return
 
-  tokenLoading.value = true
+  currentLoading.value = true
   try {
-    await ensureToken(email, true)
-    resolvedEmail.value = email
+    await loadCurrentToken(email, { copy: true })
   } finally {
-    tokenLoading.value = false
+    currentLoading.value = false
+  }
+}
+
+async function handleRotateToken() {
+  const email = ensureTargetEmail()
+  if (!email) return
+
+  try {
+    await ElMessageBox.confirm('更换后旧令牌会立即失效，客户必须使用新令牌才能继续访问。', '确认更换令牌', {
+      confirmButtonText: '继续更换',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+
+  rotateLoading.value = true
+  try {
+    const info = await rotateToken(email)
+    applyTokenInfo(info, email)
+    await copyText(info.token, '新令牌')
+  } finally {
+    rotateLoading.value = false
+  }
+}
+
+async function handleDisableToken() {
+  const email = ensureTargetEmail()
+  if (!email) return
+
+  try {
+    await ElMessageBox.confirm('禁用后客户使用当前令牌将无法访问验证码页和最近邮件查询。', '确认禁用令牌', {
+      confirmButtonText: '确认禁用',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+
+  statusLoading.value = true
+  try {
+    const info = await disableToken(email)
+    applyTokenInfo({ ...(tokenInfo.value || {}), ...info }, email)
+    ElMessage.success('该账号令牌已禁用')
+  } finally {
+    statusLoading.value = false
+  }
+}
+
+async function handleEnableToken() {
+  const email = ensureTargetEmail()
+  if (!email) return
+
+  statusLoading.value = true
+  try {
+    const info = await enableToken(email)
+    applyTokenInfo(info, email)
+    await copyText(info.token, '新令牌')
+  } finally {
+    statusLoading.value = false
   }
 }
 
@@ -251,12 +382,13 @@ async function handleQueryRecentMails() {
 
   mailLoading.value = true
   try {
-    const token = await ensureToken(email)
+    const token = await ensureActiveToken(email)
+    if (!token) return
+
     const res = await getRecentTokenMails(token)
     recentMails.value = Array.isArray(res.mails) ? res.mails : []
     activeMailId.value = getSelectedMailId(recentMails.value, activeMailId.value)
     resolvedEmail.value = res.email || email
-    currentEmail.value = resolvedEmail.value
 
     if (recentMails.value.length === 0) {
       ElMessage.info('最近没有可展示的邮件')
@@ -341,10 +473,15 @@ async function handleQueryRecentMails() {
   font-size: 12px;
 }
 
-.control-row {
+.control-row,
+.action-row {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.action-row {
+  margin-top: 12px;
 }
 
 .prefix-input {
@@ -373,11 +510,23 @@ async function handleQueryRecentMails() {
   margin-bottom: 10px;
 }
 
+.token-summary {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
 .token-title,
 .panel-title {
   font-size: 14px;
   font-weight: 700;
   color: #12233d;
+}
+
+.token-meta {
+  color: #65748d;
+  font-size: 12px;
 }
 
 .token-value {
@@ -541,7 +690,8 @@ async function handleQueryRecentMails() {
     max-height: 320px;
   }
 
-  .detail-head {
+  .detail-head,
+  .token-head {
     flex-direction: column;
   }
 }
