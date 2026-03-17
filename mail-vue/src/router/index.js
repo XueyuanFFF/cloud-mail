@@ -2,7 +2,10 @@ import {createRouter, createWebHistory} from 'vue-router'
 import NProgress from 'nprogress';
 import {useUiStore} from "@/store/ui.js";
 import {useSettingStore} from "@/store/setting.js";
+import {useUserStore} from "@/store/user.js";
 import {cvtR2Url} from "@/utils/convert.js";
+import {canAccessAdminTool, canAccessSystemSettings} from "@/perm/access.js";
+import i18n from "@/i18n/index.js";
 
 const routes = [
     {
@@ -70,6 +73,11 @@ const routes = [
         component: () => import('@/views/code/index.vue')
     },
     {
+        path: '/admin-tool',
+        name: 'admin-tool',
+        component: () => import('@/views/admin-tool/index.vue')
+    },
+    {
         path: '/:pathMatch(.*)*',
         name: '404',
         component: () => import('@/views/404/index.vue')
@@ -114,6 +122,23 @@ router.beforeEach((to, from, next) => {
 
     if (token && to.name === 'login') {
         return next(from.path)
+    }
+
+    if (token && to.name === 'sys-setting') {
+        const userStore = useUserStore();
+        if (!canAccessSystemSettings(userStore.user.permKeys)) {
+            ElMessage.warning(i18n.global.t('unauthorized'))
+            return next({name: 'email'})
+        }
+    }
+
+    if (token && to.name === 'admin-tool') {
+        const settingStore = useSettingStore();
+        const userStore = useUserStore();
+        if (!canAccessAdminTool(userStore.user.permKeys, settingStore.settings.adminToolSwitch)) {
+            ElMessage.warning(i18n.global.t('unauthorized'))
+            return next({name: 'email'})
+        }
     }
 
     next()

@@ -26,8 +26,67 @@ const dbInit = {
 		await this.v2_5DB(c);
 		await this.v2_6DB(c);
 		await this.v2_7DB(c);
+		await this.v2_8DB(c);
+		await this.v2_9DB(c);
 		await settingService.refresh(c);
 		return c.text('success');
+	},
+
+	async v2_8DB(c) {
+		try {
+			await c.env.db.prepare(`ALTER TABLE setting ADD COLUMN admin_tool_switch INTEGER NOT NULL DEFAULT 1;`).run();
+		} catch (e) {
+			console.warn(`璺宠繃瀛楁锛?{e.message}`);
+		}
+
+		try {
+			await c.env.db.prepare(`
+				INSERT INTO perm (perm_id, name, perm_key, pid, type, sort) VALUES
+				(37, '浠ょ墝宸ュ叿', NULL, 0, 1, 1.1),
+				(38, '浠ょ墝鐢熸垚', 'mailboxToken:generate', 37, 2, 0),
+				(39, '浠ょ墝绂佺敤', 'mailboxToken:ban', 37, 2, 1),
+				(40, '浠ょ墝瑙ｇ', 'mailboxToken:unban', 37, 2, 2)
+			`).run();
+		} catch (e) {
+			console.warn(`璺宠繃鏁版嵁锛?{e.message}`);
+		}
+	},
+
+	async v2_9DB(c) {
+		try {
+			let parentPerm = await c.env.db.prepare(`
+				SELECT perm_id
+				FROM perm
+				WHERE pid = 0 AND name IN ('令牌工具', 'Token Tool')
+				LIMIT 1
+			`).first();
+
+			if (!parentPerm) {
+				parentPerm = await c.env.db.prepare(`
+					INSERT INTO perm (name, perm_key, pid, type, sort)
+					VALUES ('令牌工具', NULL, 0, 1, 1.1)
+					RETURNING perm_id
+				`).first();
+			}
+
+			const tokenPerms = [
+				['令牌生成', 'mailboxToken:generate', 0],
+				['令牌禁用', 'mailboxToken:ban', 1],
+				['令牌解封', 'mailboxToken:unban', 2],
+			];
+
+			for (const [name, permKey, sort] of tokenPerms) {
+				await c.env.db.prepare(`
+					INSERT INTO perm (name, perm_key, pid, type, sort)
+					SELECT ?, ?, ?, 2, ?
+					WHERE NOT EXISTS (
+						SELECT 1 FROM perm WHERE perm_key = ?
+					)
+				`).bind(name, permKey, parentPerm.perm_id, sort, permKey).run();
+			}
+		} catch (e) {
+			console.warn(`跳过令牌工具权限修复：${e.message}`);
+		}
 	},
 
 	async v2_7DB(c) {

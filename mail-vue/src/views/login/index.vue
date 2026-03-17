@@ -15,7 +15,8 @@
         <span class="form-desc" v-else>{{ $t('regTitle') }}</span>
         <div v-show="show === 'login'">
           <el-input :class="settingStore.settings.loginDomain === 0 ? 'email-input' : ''" v-model="form.email"
-                    type="text" :placeholder="$t('emailAccount')" autocomplete="off">
+                    type="text" :placeholder="$t('emailAccount')" autocomplete="off" ref="emailInputRef"
+                    @keydown.tab.prevent="focusPassword">
             <template #append v-if="settingStore.settings.loginDomain === 0">
               <div @click.stop="openSelect">
                 <el-select
@@ -39,7 +40,7 @@
               </div>
             </template>
           </el-input>
-          <el-input v-model="form.password" :placeholder="$t('password')" type="password" autocomplete="off">
+          <el-input v-model="form.password" :placeholder="$t('password')" type="password" autocomplete="off" ref="passwordInputRef">
           </el-input>
           <el-button class="btn" type="primary" @click="submit" :loading="loginLoading"
           >{{ $t('loginBtn') }}
@@ -185,6 +186,8 @@ const form = reactive({
   password: '',
 
 });
+const emailInputRef = ref(null)
+const passwordInputRef = ref(null)
 const mySelect = ref()
 const suffix = ref('')
 const registerForm = reactive({
@@ -248,6 +251,10 @@ const background = computed(() => {
 
 const openSelect = () => {
   mySelect.value.toggleMenu()
+}
+
+function focusPassword() {
+  passwordInputRef.value?.focus()
 }
 
 function linuxDoLogin() {

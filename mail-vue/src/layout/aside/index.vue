@@ -31,7 +31,7 @@
           <Icon icon="fluent:settings-48-regular" width="20" height="20" />
           <span class="menu-name" style="margin-left: 21px">{{$t('settings')}}</span>
         </el-menu-item>
-        <div class="manage-title" v-perm="['all-email:query','user:query','role:query','setting:query','analysis:query','reg-key:query']">
+        <div class="manage-title" v-perm="['all-email:query','user:query','role:query','analysis:query','reg-key:query']">
           <div>{{$t('manage')}}</div>
         </div>
         <el-menu-item @click="router.push({name: 'analysis'})" index="analysis" v-perm="'analysis:query'"
@@ -59,10 +59,15 @@
           <Icon icon="fluent:fingerprint-20-filled" width="22" height="22" />
           <span class="menu-name" style="margin-left: 20px">{{$t('inviteCode')}}</span>
         </el-menu-item>
-        <el-menu-item @click="router.push({name: 'sys-setting'})" index="sys-setting" v-perm="'setting:query'"
+        <el-menu-item @click="router.push({name: 'sys-setting'})" index="sys-setting" v-if="isSuperAdmin"
                       :class="route.meta.name === 'sys-setting' ? 'choose-item' : ''">
           <Icon icon="eos-icons:system-ok-outlined" width="18" height="18" style="margin-left: 2px" />
           <span class="menu-name" style="margin-left: 22px">{{$t('SystemSettings')}}</span>
+        </el-menu-item>
+        <el-menu-item @click="router.push({name: 'admin-tool'})" index="admin-tool" v-if="showAdminTool"
+                      :class="route.meta.name === 'admin-tool' ? 'choose-item' : ''">
+          <Icon icon="fluent:key-20-regular" width="22" height="22" />
+          <span class="menu-name" style="margin-left: 20px">令牌工具</span>
         </el-menu-item>
       </el-menu>
     </div>
@@ -72,11 +77,23 @@
 <script setup>
 import router from "@/router/index.js";
 import { useRoute } from "vue-router";
+import { computed } from "vue";
 import {Icon} from "@iconify/vue";
 import {useSettingStore} from "@/store/setting.js";
+import {useUserStore} from "@/store/user.js";
+import {canAccessAdminTool, isSuperAdmin as hasSuperAdmin} from "@/perm/access.js";
 
 const settingStore = useSettingStore();
+const userStore = useUserStore();
 const route = useRoute();
+
+const isSuperAdmin = computed(() => {
+  return hasSuperAdmin(userStore.user.permKeys)
+})
+
+const showAdminTool = computed(() => {
+  return canAccessAdminTool(userStore.user.permKeys, settingStore.settings.adminToolSwitch)
+})
 
 </script>
 

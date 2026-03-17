@@ -1,4 +1,5 @@
 import {useUserStore} from "@/store/user.js";
+import {canAccessSystemSettings} from "@/perm/access.js";
 
 export default {
     mounted(el, binding) {
@@ -30,7 +31,13 @@ export function permsToRouter(permKeys) {
     const routerList = []
     Object.keys(routers).forEach(perm => {
         if (permKeys.includes(perm) || permKeys.includes('*')) {
-            routerList.push(...routers[perm])
+            const routeList = routers[perm].filter(route => {
+                if (route.name === 'sys-setting') {
+                    return canAccessSystemSettings(permKeys);
+                }
+                return true;
+            });
+            routerList.push(...routeList)
         }
     })
     return routerList;

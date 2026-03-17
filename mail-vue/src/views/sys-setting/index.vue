@@ -71,6 +71,13 @@
                   </el-button>
                 </div>
               </div>
+              <div class="setting-item">
+                <div><span>令牌工具（管理员）</span></div>
+                <div>
+                  <el-switch @change="change" :before-change="beforeChange" :active-value="0" :inactive-value="1"
+                             v-model="setting.adminToolSwitch"/>
+                </div>
+              </div>
             </div>
           </div>
 
