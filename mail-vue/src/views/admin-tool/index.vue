@@ -26,7 +26,7 @@
           clearable
           spellcheck="false"
           autocomplete="off"
-          @keyup.enter="handleQueryRecentMails"
+          @keyup.enter="handlePrimaryEnter"
         >
           <template #append>
             <span class="domain-suffix">@{{ ADMIN_TOOL_DOMAIN }}</span>
@@ -35,10 +35,10 @@
         <el-button v-if="canRegisterAccount" :loading="regLoading" @click="handleAddAccount">注册子账号</el-button>
         <el-button v-if="canUseTokenTool" :loading="currentLoading" @click="handleLoadCurrentToken">获取当前令牌</el-button>
         <el-button v-if="canUseTokenTool" type="primary" :loading="rotateLoading" @click="handleRotateToken">更换令牌</el-button>
-        <el-button v-if="canUseTokenTool" :loading="mailLoading" @click="handleQueryRecentMails">查询最近 3 封</el-button>
+        <el-button v-if="canQueryRecentMails" :loading="mailLoading" @click="handleQueryRecentMails">查询最近 3 封</el-button>
       </div>
 
-      <div v-if="canUseTokenTool && tokenInfo" class="action-row">
+      <div v-if="canManageTokenStatus && tokenInfo" class="action-row">
         <el-button
           v-if="tokenInfo.tokenStatus === ADMIN_TOOL_TOKEN_STATUS.ACTIVE"
           type="danger"
@@ -78,7 +78,7 @@
       <div class="token-value">{{ tokenInfo.token || '当前状态下没有可展示的令牌。' }}</div>
     </div>
 
-    <div v-if="canUseTokenTool" class="mail-panel">
+    <div v-if="canQueryRecentMails" class="mail-panel">
       <div class="mail-list">
         <div class="panel-title">最近 3 封邮件</div>
         <div v-if="mailLoading" class="panel-loading">
@@ -177,7 +177,13 @@ import { useSettingStore } from '@/store/setting.js'
 import { useUserStore } from '@/store/user.js'
 import { formatDetailDate } from '@/utils/day.js'
 import { toOssDomain } from '@/utils/convert.js'
-import { canAddSubAccount, canGenerateMailboxToken } from '@/perm/access.js'
+import {
+  canAddSubAccount,
+  canGenerateMailboxToken,
+  canUseAdminToolExtraButtons,
+  canUseAdminToolRecentMails,
+  canUseAdminToolTokenActions,
+} from '@/perm/access.js'
 import {
   ADMIN_TOOL_DOMAIN,
   ADMIN_TOOL_TOKEN_STATUS,
@@ -207,8 +213,15 @@ const tokenInfo = ref(null)
 const recentMails = ref([])
 const activeMailId = ref(null)
 
-const canRegisterAccount = computed(() => canAddSubAccount(userStore.user.permKeys))
-const canUseTokenTool = computed(() => canGenerateMailboxToken(userStore.user.permKeys))
+const canRegisterAccount = computed(() => (
+  canAddSubAccount(userStore.user.permKeys)
+  && canUseAdminToolExtraButtons(userStore.user.permKeys, settingStore.settings.adminToolExtraSwitch)
+))
+const canUseTokenTool = computed(() => canUseAdminToolTokenActions(userStore.user.permKeys))
+const canManageTokenStatus = computed(() => canGenerateMailboxToken(userStore.user.permKeys))
+const canQueryRecentMails = computed(() => (
+  canUseAdminToolRecentMails(userStore.user.permKeys, settingStore.settings.adminToolExtraSwitch)
+))
 const targetEmail = computed(() => buildAdminToolEmail(prefix.value))
 const tokenStatusMeta = computed(() => getTokenStatusMeta(tokenInfo.value?.tokenStatus))
 const selectedMail = computed(() => recentMails.value.find(mail => mail.emailId === activeMailId.value) || null)
@@ -287,6 +300,17 @@ function formatMailTime(time) {
 function formatMailHtml(content) {
   const domain = settingStore.settings.r2Domain
   return (content || '').replace(/{{domain}}/g, `${toOssDomain(domain)}/`)
+}
+
+async function handlePrimaryEnter() {
+  if (canQueryRecentMails.value) {
+    await handleQueryRecentMails()
+    return
+  }
+
+  if (canUseTokenTool.value) {
+    await handleLoadCurrentToken()
+  }
 }
 
 async function handleAddAccount() {

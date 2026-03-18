@@ -28,6 +28,20 @@ function isSuperAdmin(c) {
 	return getCurrentUser(c)?.email === c.env.admin;
 }
 
+function canManageAccount(c, accountRow) {
+	const user = getCurrentUser(c);
+
+	if (!user) {
+		return true;
+	}
+
+	if (isSuperAdmin(c)) {
+		return true;
+	}
+
+	return Number(accountRow?.userId || 0) === Number(user?.userId || 0);
+}
+
 function getRotatedMeta(c) {
 	const user = getCurrentUser(c);
 	return {
@@ -53,6 +67,12 @@ const mailboxTokenService = {
 		)).get();
 	},
 
+	assertManagedAccount(c, accountRow, message = '无权操作该账号令牌') {
+		if (!canManageAccount(c, accountRow)) {
+			throw new BizError(message, 403);
+		}
+	},
+
 	async selectManagedAccount(c, emailAddr) {
 		const accountRow = await this.selectAccountByEmail(c, emailAddr);
 
@@ -60,9 +80,7 @@ const mailboxTokenService = {
 			throw new BizError('账号不存在', 404);
 		}
 
-		if (!isSuperAdmin(c) && accountRow.userId !== getCurrentUser(c)?.userId) {
-			throw new BizError('无权操作该账号令牌', 403);
-		}
+		this.assertManagedAccount(c, accountRow);
 
 		return accountRow;
 	},
@@ -220,6 +238,7 @@ const mailboxTokenService = {
 
 	async getRecentMails(c, token) {
 		const accountRow = await this.resolveAvailableAccount(c, token);
+		this.assertManagedAccount(c, accountRow, '无权查询该账号邮件');
 		const mails = await this.listRecentMails(c, accountRow.email, 3);
 
 		return {

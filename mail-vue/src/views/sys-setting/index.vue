@@ -78,6 +78,18 @@
                              v-model="setting.adminToolSwitch"/>
                 </div>
               </div>
+              <div class="setting-item">
+                <div>
+                  <span>令牌工具扩展按钮（管理员）</span>
+                  <el-tooltip effect="dark" content="控制管理员令牌工具中的“注册子账号”和“查询最近 3 封”按钮">
+                    <Icon class="warning" icon="fe:warning" width="18" height="18"/>
+                  </el-tooltip>
+                </div>
+                <div>
+                  <el-switch @change="change" :before-change="beforeChange" :active-value="0" :inactive-value="1"
+                             v-model="setting.adminToolExtraSwitch"/>
+                </div>
+              </div>
             </div>
           </div>
 

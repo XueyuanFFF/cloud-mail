@@ -200,8 +200,9 @@ const settingService = {
 			linuxdoClientId: settingRow.linuxdoClientId,
 			linuxdoCallbackUrl: settingRow.linuxdoCallbackUrl,
 			linuxdoSwitch: settingRow.linuxdoSwitch,
-				minEmailPrefix: settingRow.minEmailPrefix,
-			adminToolSwitch: settingRow.adminToolSwitch
+			minEmailPrefix: settingRow.minEmailPrefix,
+			adminToolSwitch: settingRow.adminToolSwitch,
+			adminToolExtraSwitch: settingRow.adminToolExtraSwitch
 		};
 	}
 };

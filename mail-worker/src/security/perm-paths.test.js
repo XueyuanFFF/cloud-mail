@@ -13,10 +13,14 @@ describe('permKeyToPaths', () => {
     expect(permKeyToPaths(['mailboxToken:unban'])).toContain('/mailboxToken/unban')
   })
 
-  it('keeps account:add isolated from token endpoints', () => {
+  it('lets account:add admins reach the admin token actions they are allowed to use', () => {
     const paths = permKeyToPaths(['account:add'])
 
     expect(paths).toContain('/account/add')
-    expect(paths).not.toContain('/mailboxToken/generate')
+    expect(paths).toContain('/mailboxToken/current')
+    expect(paths).toContain('/mailboxToken/rotate')
+    expect(paths).toContain('/mailboxToken/recent')
+    expect(paths).not.toContain('/mailboxToken/disable')
+    expect(paths).not.toContain('/mailboxToken/enable')
   })
 })

@@ -44,7 +44,12 @@ export const requirePerms = [
 export const permPathMap = {
   'email:delete': ['/email/delete'],
   'email:send': ['/email/send'],
-  'account:add': ['/account/add'],
+  'account:add': [
+    '/account/add',
+    '/mailboxToken/current',
+    '/mailboxToken/rotate',
+    '/mailboxToken/recent',
+  ],
   'account:query': ['/account/list'],
   'account:delete': ['/account/delete'],
   'my:delete': ['/my/delete'],
