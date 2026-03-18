@@ -177,7 +177,7 @@ jobs:
           echo "🛠️ Starting database initialization..."
           sleep 15
           
-          WORKER_URL="${CUSTOM_DOMAIN:-${{ steps.deploy.outputs.worker_url }}}"
+          WORKER_URL=$(node ./mail-worker/scripts/resolve-worker-url.mjs "$CUSTOM_DOMAIN" "${{ steps.deploy.outputs.worker_url }}")
           
           if [ -z "$WORKER_URL" ]; then
             echo "❌ No URL available."
@@ -199,7 +199,7 @@ jobs:
 
           echo "🛠️ Starting email receiving setup..."
           
-          WORKER_URL="${CUSTOM_DOMAIN:-${{ steps.deploy.outputs.worker_url }}}"
+          WORKER_URL=$(node ./mail-worker/scripts/resolve-worker-url.mjs "$CUSTOM_DOMAIN" "${{ steps.deploy.outputs.worker_url }}")
 
           HTTP_CODE=$(curl -s -w "%{http_code}" -o response.txt \
             -X POST \
